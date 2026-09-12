@@ -29,12 +29,14 @@ import requests
 
 DATA_DIR = Path("data")
 HISTORY_FILE = DATA_DIR / "history.parquet"
+SECTORS_FILE = DATA_DIR / "sectors.json"
 RESULTS_FILE = Path("results.json")
 
 MIN_PRICE = 20                  # exclude penny stocks
 MIN_AVG_TURNOVER_20D = 5_00_00_000   # ₹5 crore/day min liquidity
 MIN_HISTORY_DAYS = 210          # need ~200 trading days for SMA200
-TOP_N = 30                      # how many stocks to publish
+TOP_N = 150                     # how many stocks to publish — kept generous since
+                                 # the site lets you filter by price/sector afterward
 
 WEIGHTS = {
     "trend": 0.30,
@@ -246,6 +248,12 @@ def score_symbol(g: pd.DataFrame) -> dict | None:
     }
 
 
+def load_sectors() -> dict:
+    if SECTORS_FILE.exists():
+        return json.loads(SECTORS_FILE.read_text())
+    return {}
+
+
 def build_rankings(hist: pd.DataFrame) -> list[dict]:
     rows = []
     for _, g in hist.groupby("symbol"):
@@ -269,7 +277,17 @@ def build_rankings(hist: pd.DataFrame) -> list[dict]:
     ).round(1)
 
     df = df.sort_values("composite_score", ascending=False).head(TOP_N)
-    return df.to_dict(orient="records")
+
+    # Attach sector/industry, if build_sectors.py has been run. Symbols not
+    # yet classified (new listings, or sectors.json not built) get "Unknown"
+    # rather than being dropped, so the site still shows them.
+    sectors = load_sectors()
+    records = df.to_dict(orient="records")
+    for r in records:
+        info = sectors.get(r["symbol"], {})
+        r["sector"] = info.get("sector", "Unknown")
+        r["industry"] = info.get("industry", "Unknown")
+    return records
 
 
 # ---------------------------------------------------------------------------
@@ -292,7 +310,7 @@ def main():
 
     output = {
         "as_of": as_of,
-        "generated_at": dt.datetime.utcnow().isoformat() + "Z",
+        "generated_at": dt.datetime.now(dt.timezone.utc).isoformat().replace("+00:00", "Z"),
         "methodology": {
             "weights": WEIGHTS,
             "filters": {

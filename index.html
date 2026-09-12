@@ -89,6 +89,18 @@
       <option value="70">Score ≥ 70</option>
       <option value="50">Score ≥ 50</option>
     </select>
+    <select id="priceFilter">
+      <option value="all">Any price</option>
+      <option value="0-300">Under ₹300</option>
+      <option value="300-400">₹300 – ₹400</option>
+      <option value="400-500">₹400 – ₹500</option>
+      <option value="500-800">₹500 – ₹800</option>
+      <option value="800-1000">₹800 – ₹1000</option>
+      <option value="1000-999999">Above ₹1000</option>
+    </select>
+    <select id="sectorFilter">
+      <option value="all">Any sector</option>
+    </select>
     <span class="status" id="statusLine">not yet loaded</span>
   </div>
 
@@ -123,12 +135,15 @@ const statusEl = document.getElementById('statusLine');
 const asOfEl = document.getElementById('asOf');
 const genAtEl = document.getElementById('genAt');
 const minScoreFilter = document.getElementById('minScoreFilter');
+const priceFilter = document.getElementById('priceFilter');
+const sectorFilter = document.getElementById('sectorFilter');
 const refreshBtn = document.getElementById('refreshBtn');
 
 const COLUMNS = [
   { key: 'symbol', label: 'Symbol' },
   { key: 'composite_score', label: 'Score' },
   { key: 'price', label: 'Price (₹)' },
+  { key: 'sector', label: 'Sector' },
   { key: 'return_20d_pct', label: '20d Return' },
   { key: 'trend_score', label: 'Trend' },
   { key: 'momentum_score', label: 'Momentum' },
@@ -143,14 +158,44 @@ function scoreClass(v){
   return 'score-low';
 }
 
+function compareValues(a, b, key){
+  const av = a[key], bv = b[key];
+  if (typeof av === 'string' || typeof bv === 'string'){
+    return String(av).localeCompare(String(bv));
+  }
+  return (av ?? -Infinity) - (bv ?? -Infinity);
+}
+
+function populateSectorFilter(){
+  const sectors = Array.from(new Set(currentData.map(r => r.sector))).sort();
+  const current = sectorFilter.value;
+  sectorFilter.innerHTML = '<option value="all">Any sector</option>' +
+    sectors.map(s => `<option value="${s}">${s}</option>`).join('');
+  // keep the previous selection if it's still valid after a reload
+  if (sectors.includes(current)) sectorFilter.value = current;
+}
+
 function render(){
   if (!currentData.length){
     tableWrap.innerHTML = '<div class="empty">No results to show yet.</div>';
     return;
   }
   const minScore = parseFloat(minScoreFilter.value);
+  const sector = sectorFilter.value;
+  const priceRange = priceFilter.value;
+
   let rows = currentData.filter(r => r.composite_score >= minScore);
-  rows = rows.slice().sort((a,b) => (a[sortKey] - b[sortKey]) * sortDir);
+  if (sector !== 'all') rows = rows.filter(r => r.sector === sector);
+  if (priceRange !== 'all'){
+    const [lo, hi] = priceRange.split('-').map(Number);
+    rows = rows.filter(r => r.price >= lo && r.price < hi);
+  }
+  rows = rows.slice().sort((a,b) => compareValues(a, b, sortKey) * sortDir);
+
+  if (!rows.length){
+    tableWrap.innerHTML = '<div class="empty">No stocks match these filters right now. Try widening the price range, score, or sector.</div>';
+    return;
+  }
 
   const head = COLUMNS.map(c =>
     `<th data-key="${c.key}">${c.label}${sortKey===c.key ? (sortDir===1?' ▲':' ▼') : ''}</th>`
@@ -161,6 +206,7 @@ function render(){
       <td><span class="rank">${i+1}</span>${r.symbol}</td>
       <td class="score-cell ${scoreClass(r.composite_score)}">${r.composite_score.toFixed(1)}</td>
       <td>${r.price.toFixed(2)}</td>
+      <td>${r.sector}</td>
       <td class="${r.return_20d_pct >= 0 ? 'pos' : 'neg'}">${r.return_20d_pct >= 0 ? '+' : ''}${r.return_20d_pct.toFixed(1)}%</td>
       <td>${r.trend_score.toFixed(0)}</td>
       <td>${r.momentum_score.toFixed(0)}</td>
@@ -194,6 +240,7 @@ async function load(){
     genAtEl.textContent = 'GENERATED ' + new Date(data.generated_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) + ' IST';
     currentData = data.results || [];
     statusEl.textContent = `${currentData.length} candidates`;
+    populateSectorFilter();
     render();
   }catch(err){
     tableWrap.innerHTML = `<div class="error">Couldn't load results.json — ${err.message}.<br><span style="font-size:0.85rem;">Make sure the daily scan workflow has run at least once and results.json exists alongside this page.</span></div>`;
@@ -205,6 +252,8 @@ async function load(){
 
 refreshBtn.addEventListener('click', load);
 minScoreFilter.addEventListener('change', render);
+priceFilter.addEventListener('change', render);
+sectorFilter.addEventListener('change', render);
 load();
 </script>
 </body>

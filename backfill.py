@@ -69,7 +69,7 @@ def write_results(hist: pd.DataFrame):
     rankings = scanner.build_rankings(hist)
     output = {
         "as_of": str(hist["date"].max().date()),
-        "generated_at": dt.datetime.utcnow().isoformat() + "Z",
+        "generated_at": dt.datetime.now(dt.timezone.utc).isoformat().replace("+00:00", "Z"),
         "methodology": {
             "weights": scanner.WEIGHTS,
             "filters": {
@@ -84,6 +84,21 @@ def write_results(hist: pd.DataFrame):
     return rankings
 
 
+def load_known_holidays() -> set:
+    """Dates we've already confirmed have no trading data (holidays), so we
+    stop re-requesting them on every future run."""
+    path = scanner.DATA_DIR / "known_holidays.json"
+    if path.exists():
+        return set(json.loads(path.read_text()))
+    return set()
+
+
+def save_known_holidays(holidays: set):
+    path = scanner.DATA_DIR / "known_holidays.json"
+    scanner.DATA_DIR.mkdir(exist_ok=True)
+    path.write_text(json.dumps(sorted(str(d) for d in holidays)))
+
+
 def backfill(days_back: int):
     end = dt.date.today()
     start = end - dt.timedelta(days=days_back)
@@ -91,13 +106,15 @@ def backfill(days_back: int):
 
     existing = load_existing_history()
     already_have = set(existing["date"].dt.date) if existing is not None else set()
-    todo_days = [d for d in candidate_days if d not in already_have]
+    known_holidays = {dt.date.fromisoformat(d) for d in load_known_holidays()}
+    todo_days = [d for d in candidate_days if d not in already_have and d not in known_holidays]
 
     print(f"Backfill range: {start} to {end} ({len(candidate_days)} weekdays)")
     if already_have:
-        print(f"Already have {len(already_have)} days saved -- skipping those, "
-              f"{len(todo_days)} left to fetch.")
-    print(f"One request every {REQUEST_DELAY_SECONDS}s -- this will take a while.\n")
+        print(f"Already have {len(already_have)} days saved -- skipping those.")
+    if known_holidays:
+        print(f"Skipping {len(known_holidays & set(candidate_days))} known holidays in this range.")
+    print(f"{len(todo_days)} left to fetch, one request every {REQUEST_DELAY_SECONDS}s.\n")
 
     if not todo_days:
         print("Nothing left to backfill. Scoring with existing history...")
@@ -109,6 +126,7 @@ def backfill(days_back: int):
     pending_frames = []
     consecutive_failures = 0
     hist = existing
+    newly_found_holidays = []
 
     for i, day in enumerate(todo_days, 1):
         try:
@@ -123,6 +141,7 @@ def backfill(days_back: int):
             print(f"  [{i}/{len(todo_days)}] {day}  ok, {len(df)} stocks")
         else:
             consecutive_failures += 1
+            newly_found_holidays.append(day)
             print(f"  [{i}/{len(todo_days)}] {day}  no data (holiday, or not published)")
 
         if len(pending_frames) >= CHECKPOINT_EVERY:
@@ -131,15 +150,25 @@ def backfill(days_back: int):
             pending_frames = []
 
         if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
-            print(f"\n{consecutive_failures} failures in a row -- NSE may be blocking or "
-                  "rate-limiting this environment. Stopping early and saving what we have. "
-                  "Just re-run the script later to pick up where this left off.")
+            print(f"\n{consecutive_failures} failures in a row -- could be a genuine holiday "
+                  "cluster, or NSE rate-limiting. Not caching this streak as confirmed holidays "
+                  "(they'll be retried next run, just in case). Saving what we have.")
+            # Don't trust the trailing streak that caused the abort — it's
+            # ambiguous whether it's holidays or a real block. Only the
+            # no-data days BEFORE this streak are safe to cache permanently.
+            newly_found_holidays = newly_found_holidays[:-consecutive_failures]
             break
 
         time.sleep(REQUEST_DELAY_SECONDS)
 
     if pending_frames:
         hist = save_history(hist, pending_frames)
+
+    if newly_found_holidays:
+        known_holidays |= set(newly_found_holidays)
+        save_known_holidays(known_holidays)
+        print(f"Cached {len(newly_found_holidays)} newly-confirmed holiday date(s) "
+              "-- these won't be retried on future runs.")
 
     if hist is None or hist.empty:
         print("\nNo data was collected at all. NSE likely blocked these requests "
