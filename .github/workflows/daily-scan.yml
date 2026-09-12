@@ -1,0 +1,40 @@
+# Save this file as: .github/workflows/daily-scan.yml
+#
+# Runs the scanner every weekday after NSE market close (3:30 PM IST),
+# commits the updated history + results.json back to the repo.
+# GitHub Pages (serving from this same repo) then shows the fresh data.
+
+name: Daily NSE Scan
+
+on:
+  schedule:
+    # 12:15 UTC = 5:45 PM IST, Mon-Fri (safely after 3:30 PM close + data publish delay)
+    - cron: "15 12 * * 1-5"
+  workflow_dispatch: {}   # lets you trigger it manually from the Actions tab
+
+permissions:
+  contents: write   # needed so the workflow can commit results back
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run scanner
+        run: python scanner.py
+
+      - name: Commit updated data
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/ results.json
+          git diff --cached --quiet || git commit -m "Daily scan: $(date -u +%Y-%m-%d)"
+          git push
