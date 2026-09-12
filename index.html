@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>The Opening Bell — Swing Scanner</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,600;8..60,700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --paper:#EDE6D6; --paper-dim:#E2D9C2; --ink:#22281F; --ink-soft:#4B5142;
+    --green:#2F5233; --green-deep:#213B26; --gold:#A9812F; --rule:#C7BC9E; --red:#8C3B2E;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0; background:var(--paper); color:var(--ink); font-family:'Source Serif 4', serif; -webkit-font-smoothing:antialiased;}
+  a{color:inherit;}
+
+  .masthead{max-width:900px; margin:0 auto; padding:2.75rem 1.5rem 1.25rem;}
+  .dateline{display:flex; justify-content:space-between; font-family:'IBM Plex Mono',monospace; font-size:0.75rem; color:var(--ink-soft); margin-bottom:0.9rem;}
+  h1{font-size:2.5rem; line-height:1.05; margin:0 0 0.35rem; font-weight:700;}
+  .sub{font-size:1rem; color:var(--ink-soft); margin:0; max-width:64ch;}
+  .double-rule{max-width:900px; margin:1.4rem auto 0; padding:0 1.5rem;}
+  .double-rule .a{border-top:2.5px solid var(--ink); margin-bottom:3px;}
+  .double-rule .b{border-top:1px solid var(--ink);}
+
+  .controls{max-width:900px; margin:1rem auto 0; padding:0 1.5rem; display:flex; align-items:center; gap:1rem; flex-wrap:wrap;}
+  button{font-family:'IBM Plex Mono',monospace; font-size:0.75rem; background:var(--ink); color:var(--paper); border:none; padding:0.55rem 1rem; cursor:pointer;}
+  button:hover{background:var(--green-deep);}
+  select{font-family:'IBM Plex Mono',monospace; font-size:0.75rem; background:#fff; border:1px solid var(--rule); padding:0.5rem 0.7rem; color:var(--ink);}
+  .status{font-family:'IBM Plex Mono',monospace; font-size:0.72rem; color:var(--ink-soft); margin-left:auto;}
+
+  .table-wrap{max-width:900px; margin:1.75rem auto 0; padding:0 1.5rem 3rem; overflow-x:auto;}
+  table{width:100%; border-collapse:collapse; font-size:0.92rem;}
+  thead th{
+    font-family:'IBM Plex Mono',monospace; font-size:0.68rem; letter-spacing:0.04em;
+    text-transform:uppercase; color:var(--ink-soft); text-align:right; padding:0.5rem 0.6rem;
+    border-bottom:2px solid var(--ink); cursor:pointer; white-space:nowrap;
+  }
+  thead th:first-child, thead th:nth-child(2){text-align:left;}
+  thead th:hover{color:var(--ink);}
+  tbody td{padding:0.65rem 0.6rem; border-bottom:1px solid var(--rule); text-align:right; font-family:'IBM Plex Mono',monospace; font-size:0.85rem; white-space:nowrap;}
+  tbody td:first-child{text-align:left; font-weight:600; font-size:0.95rem; font-family:'IBM Plex Mono',monospace;}
+  tbody td:nth-child(2){text-align:right;}
+  tbody tr:hover{background:var(--paper-dim);}
+  .rank{color:var(--ink-soft); font-size:0.8em; margin-right:0.5em;}
+  .score-cell{font-weight:700;}
+  .score-high{color:var(--green);}
+  .score-mid{color:var(--gold);}
+  .score-low{color:var(--red);}
+  .pos{color:var(--green);}
+  .neg{color:var(--red);}
+
+  .empty, .error, .loading{padding:2.5rem 0; color:var(--ink-soft); font-size:0.98rem;}
+  .error{color:var(--red);}
+  .error a{text-decoration:underline;}
+
+  .methodology{max-width:900px; margin:0 auto; padding:0 1.5rem 2rem;}
+  .methodology summary{font-family:'IBM Plex Mono',monospace; font-size:0.78rem; color:var(--ink-soft); cursor:pointer; padding:0.6rem 0; border-top:1px solid var(--rule);}
+  .methodology .body{font-size:0.92rem; color:var(--ink-soft); padding:0.5rem 0 1rem; line-height:1.6;}
+  .methodology .body b{color:var(--ink);}
+
+  footer{max-width:900px; margin:0 auto; padding:1.5rem 1.5rem 3rem; font-family:'IBM Plex Mono',monospace; font-size:0.7rem; color:var(--ink-soft); border-top:1px solid var(--rule);}
+
+  @media (max-width:600px){
+    h1{font-size:2rem;}
+    table{font-size:0.8rem;}
+    thead th, tbody td{padding:0.45rem 0.4rem;}
+  }
+</style>
+</head>
+<body>
+
+  <div class="masthead">
+    <div class="dateline">
+      <span id="asOf">—</span>
+      <span id="genAt">—</span>
+    </div>
+    <h1>The Opening Bell</h1>
+    <p class="sub">Top swing-trade candidates across all NSE stocks, ranked by a composite score of trend, momentum, volume confirmation, volatility, and relative strength. Rebuilt daily after market close.</p>
+  </div>
+
+  <div class="double-rule"><div class="a"></div><div class="b"></div></div>
+
+  <div class="controls">
+    <button id="refreshBtn">Reload results.json</button>
+    <select id="minScoreFilter">
+      <option value="0">All scores</option>
+      <option value="70">Score ≥ 70</option>
+      <option value="50">Score ≥ 50</option>
+    </select>
+    <span class="status" id="statusLine">not yet loaded</span>
+  </div>
+
+  <div class="table-wrap" id="tableWrap">
+    <div class="loading">Loading results.json…</div>
+  </div>
+
+  <details class="methodology">
+    <summary>How the score is built</summary>
+    <div class="body">
+      Each stock is scored 0–100 on five factors, then combined as a weighted average:<br><br>
+      <b>Trend (30%)</b> — price above the 50-day average, 50-day above the 200-day average, and the 50-day average rising.<br>
+      <b>Momentum (25%)</b> — RSI(14) peaking in the 55–65 zone (healthy, not yet overbought), plus a bonus when MACD is bullish.<br>
+      <b>Volume (20%)</b> — today's volume relative to the 20-day average; confirms real participation, not a drift.<br>
+      <b>Volatility (15%)</b> — ATR as a percent of price, favoring a 2–5% band: enough movement to swing-trade, not so much it's reckless.<br>
+      <b>Relative strength (10%)</b> — 20-day return, ranked against every other stock scanned that day.<br><br>
+      Stocks are pre-filtered to exclude prices under ₹20 and average daily turnover under ₹5 crore, to keep the list liquid and tradable. This is a ranking tool, not investment advice — always confirm with your own analysis before trading.
+    </div>
+  </details>
+
+  <footer>
+    Source: NSE India daily bhavcopy · Scores are a heuristic, not a guarantee · Not investment advice
+  </footer>
+
+<script>
+let currentData = [];
+let sortKey = 'composite_score';
+let sortDir = -1;
+
+const tableWrap = document.getElementById('tableWrap');
+const statusEl = document.getElementById('statusLine');
+const asOfEl = document.getElementById('asOf');
+const genAtEl = document.getElementById('genAt');
+const minScoreFilter = document.getElementById('minScoreFilter');
+const refreshBtn = document.getElementById('refreshBtn');
+
+const COLUMNS = [
+  { key: 'symbol', label: 'Symbol' },
+  { key: 'composite_score', label: 'Score' },
+  { key: 'price', label: 'Price (₹)' },
+  { key: 'return_20d_pct', label: '20d Return' },
+  { key: 'trend_score', label: 'Trend' },
+  { key: 'momentum_score', label: 'Momentum' },
+  { key: 'volume_score', label: 'Volume' },
+  { key: 'volatility_score', label: 'Volatility' },
+  { key: 'rsi', label: 'RSI' },
+];
+
+function scoreClass(v){
+  if (v >= 70) return 'score-high';
+  if (v >= 50) return 'score-mid';
+  return 'score-low';
+}
+
+function render(){
+  if (!currentData.length){
+    tableWrap.innerHTML = '<div class="empty">No results to show yet.</div>';
+    return;
+  }
+  const minScore = parseFloat(minScoreFilter.value);
+  let rows = currentData.filter(r => r.composite_score >= minScore);
+  rows = rows.slice().sort((a,b) => (a[sortKey] - b[sortKey]) * sortDir);
+
+  const head = COLUMNS.map(c =>
+    `<th data-key="${c.key}">${c.label}${sortKey===c.key ? (sortDir===1?' ▲':' ▼') : ''}</th>`
+  ).join('');
+
+  const body = rows.map((r, i) => `
+    <tr>
+      <td><span class="rank">${i+1}</span>${r.symbol}</td>
+      <td class="score-cell ${scoreClass(r.composite_score)}">${r.composite_score.toFixed(1)}</td>
+      <td>${r.price.toFixed(2)}</td>
+      <td class="${r.return_20d_pct >= 0 ? 'pos' : 'neg'}">${r.return_20d_pct >= 0 ? '+' : ''}${r.return_20d_pct.toFixed(1)}%</td>
+      <td>${r.trend_score.toFixed(0)}</td>
+      <td>${r.momentum_score.toFixed(0)}</td>
+      <td>${r.volume_score.toFixed(0)}</td>
+      <td>${r.volatility_score.toFixed(0)}</td>
+      <td>${r.rsi ?? '—'}</td>
+    </tr>
+  `).join('');
+
+  tableWrap.innerHTML = `<table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;
+
+  tableWrap.querySelectorAll('thead th').forEach(th => {
+    th.addEventListener('click', () => {
+      const key = th.dataset.key;
+      if (sortKey === key) sortDir *= -1; else { sortKey = key; sortDir = -1; }
+      render();
+    });
+  });
+}
+
+async function load(){
+  refreshBtn.disabled = true;
+  statusEl.textContent = 'loading…';
+  tableWrap.innerHTML = '<div class="loading">Loading results.json…</div>';
+  try{
+    const res = await fetch('results.json', { cache: 'no-store' });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+
+    asOfEl.textContent = 'AS OF ' + data.as_of;
+    genAtEl.textContent = 'GENERATED ' + new Date(data.generated_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) + ' IST';
+    currentData = data.results || [];
+    statusEl.textContent = `${currentData.length} candidates`;
+    render();
+  }catch(err){
+    tableWrap.innerHTML = `<div class="error">Couldn't load results.json — ${err.message}.<br><span style="font-size:0.85rem;">Make sure the daily scan workflow has run at least once and results.json exists alongside this page.</span></div>`;
+    statusEl.textContent = 'load failed';
+    console.error(err);
+  }
+  refreshBtn.disabled = false;
+}
+
+refreshBtn.addEventListener('click', load);
+minScoreFilter.addEventListener('change', render);
+load();
+</script>
+</body>
+</html>
