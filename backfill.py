@@ -130,7 +130,7 @@ def backfill(days_back: int):
 
     for i, day in enumerate(todo_days, 1):
         try:
-            df = scanner.fetch_bhavcopy(day, session=session)
+            df = scanner.fetch_day(day, session=session)
         except Exception as e:
             print(f"  [{i}/{len(todo_days)}] {day}  ERROR: {e}")
             df = None

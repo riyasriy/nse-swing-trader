@@ -111,13 +111,15 @@
   <details class="methodology">
     <summary>How the score is built</summary>
     <div class="body">
-      Each stock is scored 0–100 on five factors, then combined as a weighted average:<br><br>
-      <b>Trend (30%)</b> — price above the 50-day average, 50-day above the 200-day average, and the 50-day average rising.<br>
-      <b>Momentum (25%)</b> — RSI(14) peaking in the 55–65 zone (healthy, not yet overbought), plus a bonus when MACD is bullish.<br>
-      <b>Volume (20%)</b> — today's volume relative to the 20-day average; confirms real participation, not a drift.<br>
-      <b>Volatility (15%)</b> — ATR as a percent of price, favoring a 2–5% band: enough movement to swing-trade, not so much it's reckless.<br>
-      <b>Relative strength (10%)</b> — 20-day return, ranked against every other stock scanned that day.<br><br>
-      Stocks are pre-filtered to exclude prices under ₹20 and average daily turnover under ₹5 crore, to keep the list liquid and tradable. This is a ranking tool, not investment advice — always confirm with your own analysis before trading.
+      Each stock is scored 0–100 on seven factors, then combined as a weighted average:<br><br>
+      <b>Trend (25%)</b> — price above the 50-day average, 50-day above the 200-day average, and the 50-day average rising.<br>
+      <b>Momentum (20%)</b> — RSI(14) peaking in the 55–65 zone (healthy, not yet overbought), plus a bonus when MACD is bullish.<br>
+      <b>Volume (15%)</b> — today's volume relative to the 20-day average; confirms real participation, not a drift.<br>
+      <b>Delivery % (15%)</b> — the share of traded volume actually taken delivery rather than squared off intraday. Higher delivery % means the move is backed by real buying, not leveraged/speculative churn.<br>
+      <b>Extension (10%)</b> — penalizes stocks already more than ~8% above their 50-day average. Chasing an overextended move is a common way momentum strategies lose money on the pullback.<br>
+      <b>Volatility (10%)</b> — ATR as a percent of price, favoring a 2–5% band: enough movement to swing-trade, not so much it's reckless.<br>
+      <b>Relative strength (5%)</b> — 20-day return, ranked against every other stock scanned that day.<br><br>
+      Stocks are pre-filtered to exclude prices under ₹20 and average daily turnover under ₹5 crore, to keep the list liquid and tradable. A high score still isn't a buy signal by itself — check whether there's an actual catalyst behind the move, whether the broader market is in an uptrend, and whether the stock is breaking out of a real base rather than spiking with no prior setup. This is a ranking tool, not investment advice.
     </div>
   </details>
 
@@ -148,7 +150,8 @@ const COLUMNS = [
   { key: 'trend_score', label: 'Trend' },
   { key: 'momentum_score', label: 'Momentum' },
   { key: 'volume_score', label: 'Volume' },
-  { key: 'volatility_score', label: 'Volatility' },
+  { key: 'delivery_pct', label: 'Delivery %' },
+  { key: 'pct_above_sma50', label: 'vs 50d Avg' },
   { key: 'rsi', label: 'RSI' },
 ];
 
@@ -211,7 +214,8 @@ function render(){
       <td>${r.trend_score.toFixed(0)}</td>
       <td>${r.momentum_score.toFixed(0)}</td>
       <td>${r.volume_score.toFixed(0)}</td>
-      <td>${r.volatility_score.toFixed(0)}</td>
+      <td>${r.delivery_pct != null ? r.delivery_pct.toFixed(1) + '%' : '—'}</td>
+      <td class="${r.pct_above_sma50 > 8 ? 'neg' : ''}">${r.pct_above_sma50 >= 0 ? '+' : ''}${r.pct_above_sma50.toFixed(1)}%</td>
       <td>${r.rsi ?? '—'}</td>
     </tr>
   `).join('');

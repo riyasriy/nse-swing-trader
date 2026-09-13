@@ -35,15 +35,22 @@ RESULTS_FILE = Path("results.json")
 MIN_PRICE = 20                  # exclude penny stocks
 MIN_AVG_TURNOVER_20D = 5_00_00_000   # ₹5 crore/day min liquidity
 MIN_HISTORY_DAYS = 210          # need ~200 trading days for SMA200
+MAX_PCT_ABOVE_SMA50 = 25        # hard exclude: more than this far above the 50-day
+                                 # average is "chasing," regardless of how good the
+                                 # rest of the score looks — the soft extension_score
+                                 # penalty alone wasn't enough to stop a fresh spike
+                                 # from still ranking #1 on trend+momentum strength
 TOP_N = 150                     # how many stocks to publish — kept generous since
                                  # the site lets you filter by price/sector afterward
 
 WEIGHTS = {
-    "trend": 0.30,
-    "momentum": 0.25,
-    "volume": 0.20,
-    "volatility": 0.15,
-    "relative_strength": 0.10,
+    "trend": 0.25,
+    "momentum": 0.20,
+    "volume": 0.15,
+    "delivery": 0.15,       # NEW: % of volume actually taken delivery, not just intraday churn
+    "extension": 0.10,      # NEW: penalizes stocks already too far above their 50-day average
+    "volatility": 0.10,
+    "relative_strength": 0.05,
 }
 
 HEADERS = {
@@ -116,12 +123,71 @@ def fetch_bhavcopy(target_date: dt.date, session: requests.Session | None = None
     return df.reset_index(drop=True)
 
 
+def fetch_delivery(target_date: dt.date, session: requests.Session | None = None) -> pd.DataFrame | None:
+    """Fetch delivery % data for a given date from NSE's 'full bhavcopy' file
+    (a separate, older-format file from the OHLCV one — it's the only place
+    NSE publishes DELIV_PER, the % of traded volume actually taken delivery
+    rather than squared off intraday). Same archive domain, same reliability
+    as the OHLCV download."""
+    owns_session = session is None
+    if owns_session:
+        session = new_session()
+
+    date_str = target_date.strftime("%d%m%Y")
+    url = f"https://nsearchives.nseindia.com/products/content/sec_bhavdata_full_{date_str}.csv"
+    resp = session.get(url, timeout=20)
+    if resp.status_code != 200 or len(resp.content) < 500:
+        return None
+
+    df = pd.read_csv(io.BytesIO(resp.content))
+    # This file is notorious for stray whitespace in both headers and values
+    df.columns = [c.strip() for c in df.columns]
+    cols = {c.lower(): c for c in df.columns}
+    symbol_col, series_col, deliv_col = cols.get("symbol"), cols.get("series"), cols.get("deliv_per")
+    if not symbol_col or not deliv_col:
+        return None
+
+    if series_col:
+        df = df[df[series_col].astype(str).str.strip() == "EQ"]
+
+    out = pd.DataFrame({
+        "symbol": df[symbol_col].astype(str).str.strip(),
+        "delivery_pct": pd.to_numeric(df[deliv_col].astype(str).str.strip(), errors="coerce"),
+    })
+    return out.reset_index(drop=True)
+
+
+def fetch_day(target_date: dt.date, session: requests.Session | None = None) -> pd.DataFrame | None:
+    """Fetch one day's OHLCV + delivery % together. Returns None if the
+    OHLCV file is missing (holiday/weekend). If delivery data specifically
+    is missing but OHLCV isn't, delivery_pct is just left as NaN for that
+    day rather than failing the whole day."""
+    owns_session = session is None
+    if owns_session:
+        session = new_session()
+
+    ohlcv = fetch_bhavcopy(target_date, session=session)
+    if ohlcv is None or ohlcv.empty:
+        return None
+
+    try:
+        deliv = fetch_delivery(target_date, session=session)
+    except Exception:
+        deliv = None
+
+    if deliv is not None and not deliv.empty:
+        ohlcv = ohlcv.merge(deliv, on="symbol", how="left")
+    else:
+        ohlcv["delivery_pct"] = np.nan
+    return ohlcv
+
+
 def fetch_latest_bhavcopy(max_lookback_days: int = 6) -> pd.DataFrame:
     """Try today, then walk backwards until a trading day is found."""
     session = new_session()
     d = dt.date.today()
     for _ in range(max_lookback_days):
-        df = fetch_bhavcopy(d, session=session)
+        df = fetch_day(d, session=session)
         if df is not None and not df.empty:
             return df
         d -= dt.timedelta(days=1)
@@ -231,7 +297,31 @@ def score_symbol(g: pd.DataFrame) -> dict | None:
         dist = min(abs(atr_pct - 2), abs(atr_pct - 5)) if atr_pct < 2 or atr_pct > 5 else 0
         volatility_score = max(0, 100 - dist * 20)
 
-    # --- Relative strength (10%): 20-day return, ranked later against peers ---
+    # --- Delivery score (15%): % of volume actually taken delivery, not
+    # just squared off intraday. Higher = more conviction behind the move,
+    # not just leveraged/speculative churn. Neutral (50) when unavailable
+    # (older backfilled days, or NSE's delivery file missing for that date).
+    deliv_pct = g["delivery_pct"].iloc[last] if "delivery_pct" in g.columns else np.nan
+    if pd.isna(deliv_pct):
+        delivery_score = 50.0
+    else:
+        delivery_score = float(np.clip(deliv_pct * 1.4, 0, 100))
+
+    # --- Extension score (10%): penalizes stocks already too far above
+    # their 50-day average — chasing an overextended move is a common way
+    # momentum strategies lose money on the pullback.
+    pct_above_sma50 = (px / sma50.iloc[last] - 1) * 100 if sma50.iloc[last] else 0
+    if pct_above_sma50 > MAX_PCT_ABOVE_SMA50:
+        # Hard cutoff, not just a scoring penalty — a stock that just spiked
+        # this far shouldn't be able to buy its way into the rankings via a
+        # strong trend/momentum score from that same spike.
+        return None
+    if pct_above_sma50 <= 8:
+        extension_score = 100.0
+    else:
+        extension_score = max(0.0, 100 - (pct_above_sma50 - 8) * 6)
+
+    # --- Relative strength (5%): 20-day return, ranked later against peers ---
     ret_20d = (px / close.iloc[last - 20] - 1) * 100 if len(g) > 20 else 0
 
     return {
@@ -241,6 +331,10 @@ def score_symbol(g: pd.DataFrame) -> dict | None:
         "momentum_score": round(float(momentum_score), 1),
         "volume_score": round(float(volume_score), 1),
         "volatility_score": round(float(volatility_score), 1),
+        "delivery_score": round(delivery_score, 1),
+        "delivery_pct": round(float(deliv_pct), 1) if not pd.isna(deliv_pct) else None,
+        "extension_score": round(extension_score, 1),
+        "pct_above_sma50": round(float(pct_above_sma50), 1),
         "return_20d_pct": round(float(ret_20d), 2),
         "rsi": round(float(rsi_val), 1) if not pd.isna(rsi_val) else None,
         "atr_pct": round(float(atr_pct), 2),
@@ -272,6 +366,8 @@ def build_rankings(hist: pd.DataFrame) -> list[dict]:
         df["trend_score"] * WEIGHTS["trend"]
         + df["momentum_score"] * WEIGHTS["momentum"]
         + df["volume_score"] * WEIGHTS["volume"]
+        + df["delivery_score"] * WEIGHTS["delivery"]
+        + df["extension_score"] * WEIGHTS["extension"]
         + df["volatility_score"] * WEIGHTS["volatility"]
         + df["rs_score"] * WEIGHTS["relative_strength"]
     ).round(1)
