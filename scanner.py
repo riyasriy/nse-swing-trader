@@ -15,6 +15,7 @@ Usage:
 
 import io
 import json
+import math
 import zipfile
 import datetime as dt
 from pathlib import Path
@@ -342,6 +343,23 @@ def score_symbol(g: pd.DataFrame) -> dict | None:
     }
 
 
+def json_safe(obj):
+    """Recursively replace NaN/Infinity with None. Python's json module
+    happily writes bare `NaN` by default, but that's not valid JSON per
+    spec — browsers' JSON.parse() rejects it outright. Fields like
+    delivery_pct or rsi can be NaN on days where that data wasn't
+    available, so this has to run before every json.dumps() of results."""
+    if isinstance(obj, float):
+        if math.isnan(obj) or math.isinf(obj):
+            return None
+        return obj
+    if isinstance(obj, dict):
+        return {k: json_safe(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [json_safe(v) for v in obj]
+    return obj
+
+
 def load_sectors() -> dict:
     if SECTORS_FILE.exists():
         return json.loads(SECTORS_FILE.read_text())
@@ -417,7 +435,7 @@ def main():
         },
         "results": rankings,
     }
-    RESULTS_FILE.write_text(json.dumps(output, indent=2))
+    RESULTS_FILE.write_text(json.dumps(json_safe(output), indent=2))
     print(f"Wrote {RESULTS_FILE}")
 
 

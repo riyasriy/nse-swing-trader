@@ -80,7 +80,7 @@ def write_results(hist: pd.DataFrame):
         },
         "results": rankings,
     }
-    scanner.RESULTS_FILE.write_text(json.dumps(output, indent=2))
+    scanner.RESULTS_FILE.write_text(json.dumps(scanner.json_safe(output), indent=2))
     return rankings
 
 

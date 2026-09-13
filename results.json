@@ -1,6 +1,6 @@
 {
   "as_of": "2026-09-11",
-  "generated_at": "2026-09-13T05:53:09.028434Z",
+  "generated_at": "2026-09-13T07:25:32.151142Z",
   "methodology": {
     "weights": {
       "trend": 0.25,
@@ -66,7 +66,7 @@
       "volume_score": 100.0,
       "volatility_score": 100.0,
       "delivery_score": 50.0,
-      "delivery_pct": NaN,
+      "delivery_pct": null,
       "extension_score": 100.0,
       "pct_above_sma50": 7.5,
       "return_20d_pct": 9.71,
@@ -1386,7 +1386,7 @@
       "volume_score": 100.0,
       "volatility_score": 100.0,
       "delivery_score": 50.0,
-      "delivery_pct": NaN,
+      "delivery_pct": null,
       "extension_score": 100.0,
       "pct_above_sma50": 0.5,
       "return_20d_pct": -4.5,
@@ -1506,7 +1506,7 @@
       "volume_score": 72.4,
       "volatility_score": 100.0,
       "delivery_score": 50.0,
-      "delivery_pct": NaN,
+      "delivery_pct": null,
       "extension_score": 68.1,
       "pct_above_sma50": 13.3,
       "return_20d_pct": 8.05,
